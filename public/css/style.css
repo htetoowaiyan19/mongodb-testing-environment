@@ -1,0 +1,107 @@
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.container {
+  max-width: 900px;
+  margin: 24px auto;
+  padding: 24px;
+  background: #ffffff;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+h1 {
+  margin: 0;
+}
+
+.subtitle {
+  margin-top: 8px;
+  color: #374151;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0;
+}
+
+.query-form {
+  display: grid;
+  gap: 12px;
+}
+
+.row {
+  display: grid;
+  gap: 6px;
+}
+
+.hidden {
+  display: none;
+}
+
+label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+input,
+select,
+textarea,
+button {
+  font-size: 14px;
+  padding: 8px 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+}
+
+button {
+  width: fit-content;
+  background: #111827;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1f2937;
+}
+
+#datasetSelect {
+  min-height: 160px;
+}
+
+#result {
+  min-height: 220px;
+  margin-top: 12px;
+  padding: 12px;
+  background: #0f172a;
+  color: #e5e7eb;
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.status-banner {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  border: 1px solid #d1d5db;
+  background: #f9fafb;
+}
+
+.status-ok {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #6ee7b7;
+}
+
+.status-fail {
+  color: #991b1b;
+  background: #fef2f2;
+  border-color: #fca5a5;
+}

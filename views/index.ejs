@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MongoDB Query Playground</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <main class="container">
+    <h1>MongoDB Testing Playground</h1>
+    <p class="subtitle">
+      Run common MongoDB operations from one place. Current DB: <strong><%= defaultDbName %></strong>
+    </p>
+
+    <div class="toolbar">
+      <button type="button" id="healthBtn">Check Connection</button>
+      <button type="button" id="collectionsBtn">List Collections</button>
+      <button type="button" id="datasetsBtn">Show Local Datasets</button>
+      <button type="button" id="loadDatasetsBtn">Load Local Datasets</button>
+      <button type="button" id="resetDatasetsBtn">Reset Local Datasets</button>
+      <button type="button" id="deleteDatasetsBtn">Delete Local Datasets</button>
+      <button type="button" id="sourceCodeBtn">Run Source Code Query</button>
+    </div>
+    <p class="subtitle">
+      Source-code mode: edit <code>config.js</code> then click "Run Source Code Query".
+    </p>
+    <p class="subtitle">
+      Built-in API mode: use local JSON files in <code>local-data/</code> to seed MongoDB with demo collections.
+    </p>
+    <div class="row">
+      <label for="datasetSelect">Choose local datasets (Ctrl/Cmd + Click for multi-select)</label>
+      <select id="datasetSelect" multiple size="8"></select>
+    </div>
+
+    <form id="queryForm" class="query-form">
+      <div class="row">
+        <label for="mode">Input Mode</label>
+        <select id="mode" name="mode">
+          <option value="builder">Builder Fields</option>
+          <option value="manual">Manual JSON Query</option>
+        </select>
+      </div>
+
+      <div class="row manual-row hidden" id="manualRow">
+        <label for="manualQuery">Manual Query JSON</label>
+        <textarea
+          id="manualQuery"
+          name="manualQuery"
+          rows="8"
+          placeholder='{"collection":"users","operation":"find","filter":{"active":true},"limit":10}'
+        ></textarea>
+      </div>
+
+      <div id="builderFields">
+      <div class="row">
+        <label for="collection">Collection</label>
+        <input id="collection" name="collection" placeholder="users" required>
+      </div>
+
+      <div class="row">
+        <label for="operation">Operation</label>
+        <select id="operation" name="operation">
+          <option value="find">find</option>
+          <option value="findOne">findOne</option>
+          <option value="createOne">createOne</option>
+          <option value="createMany">createMany</option>
+          <option value="insertOne">insertOne</option>
+          <option value="insertMany">insertMany</option>
+          <option value="updateOne">updateOne</option>
+          <option value="updateMany">updateMany</option>
+          <option value="deleteOne">deleteOne</option>
+          <option value="deleteMany">deleteMany</option>
+          <option value="aggregate">aggregate</option>
+        </select>
+      </div>
+
+      <div class="row">
+        <label for="filter">Filter JSON</label>
+        <textarea id="filter" name="filter" rows="3" placeholder='{"name":"Alice"}'>{}</textarea>
+      </div>
+
+      <div class="row">
+        <label for="document">Document JSON (insertOne)</label>
+        <textarea id="document" name="document" rows="3" placeholder='{"name":"Bob","age":22}'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="documents">Documents JSON Array (insertMany)</label>
+        <textarea id="documents" name="documents" rows="3" placeholder='[{"name":"A"},{"name":"B"}]'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="update">Update JSON</label>
+        <textarea id="update" name="update" rows="3" placeholder='{"$set":{"active":true}}'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="pipeline">Pipeline JSON Array (aggregate)</label>
+        <textarea id="pipeline" name="pipeline" rows="3" placeholder='[{"$match":{"active":true}}]'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="projection">Projection JSON</label>
+        <textarea id="projection" name="projection" rows="2" placeholder='{"name":1,"_id":0}'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="sort">Sort JSON</label>
+        <textarea id="sort" name="sort" rows="2" placeholder='{"createdAt":-1}'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="options">Options JSON</label>
+        <textarea id="options" name="options" rows="2" placeholder='{"upsert":true}'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="limit">Limit (find)</label>
+        <input id="limit" name="limit" type="number" value="10" min="1">
+      </div>
+      </div>
+
+      <button type="submit">Run Query</button>
+    </form>
+
+    <h2>Response</h2>
+    <div id="statusBanner" class="status-banner">Status: Waiting</div>
+    <pre id="result">{}</pre>
+  </main>
+
+  <script>
+    const queryForm = document.getElementById("queryForm");
+    const resultEl = document.getElementById("result");
+    const modeEl = document.getElementById("mode");
+    const manualRowEl = document.getElementById("manualRow");
+    const builderFieldsEl = document.getElementById("builderFields");
+    const collectionEl = document.getElementById("collection");
+    const statusBannerEl = document.getElementById("statusBanner");
+    const datasetSelectEl = document.getElementById("datasetSelect");
+
+    function cleanPayload(formData) {
+      const payload = {};
+      for (const [key, value] of formData.entries()) {
+        if (value !== "") {
+          payload[key] = value;
+        }
+      }
+      return payload;
+    }
+
+    function setResult(value) {
+      resultEl.textContent = JSON.stringify(value, null, 2);
+    }
+
+    function setStatus(ok, message) {
+      statusBannerEl.classList.remove("status-ok", "status-fail");
+      if (ok) {
+        statusBannerEl.classList.add("status-ok");
+        statusBannerEl.textContent = `Status: SUCCESS${message ? " - " + message : ""}`;
+      } else {
+        statusBannerEl.classList.add("status-fail");
+        statusBannerEl.textContent = `Status: FAILED${message ? " - " + message : ""}`;
+      }
+    }
+
+    async function handleJsonResponse(response) {
+      const data = await response.json();
+      setResult(data);
+      setStatus(Boolean(data.ok), data.message || "");
+      return data;
+    }
+
+    function getSelectedDatasets() {
+      return Array.from(datasetSelectEl.selectedOptions).map((option) => option.value);
+    }
+
+    function renderDatasetOptions(datasets) {
+      const selected = new Set(getSelectedDatasets());
+      datasetSelectEl.innerHTML = "";
+
+      for (const item of datasets) {
+        const option = document.createElement("option");
+        option.value = item.collection;
+        option.textContent = `${item.collection} (${item.count})`;
+        if (selected.has(item.collection)) {
+          option.selected = true;
+        }
+        datasetSelectEl.appendChild(option);
+      }
+    }
+
+    async function refreshDatasets(showResult = false) {
+      try {
+        const response = await fetch("/api/local-datasets");
+        const data = await response.json();
+        if (data.ok && Array.isArray(data.data)) {
+          renderDatasetOptions(data.data);
+        }
+
+        if (showResult) {
+          setResult(data);
+          setStatus(Boolean(data.ok), data.message || "Local dataset list loaded.");
+        }
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    }
+
+    async function runSimpleGet(url) {
+      try {
+        const response = await fetch(url);
+        await handleJsonResponse(response);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    }
+
+    document.getElementById("healthBtn").addEventListener("click", () => runSimpleGet("/api/health"));
+    document.getElementById("collectionsBtn").addEventListener("click", () => runSimpleGet("/api/collections"));
+    document.getElementById("datasetsBtn").addEventListener("click", () => refreshDatasets(true));
+    document.getElementById("loadDatasetsBtn").addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/load-local-datasets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ datasets: getSelectedDatasets() }),
+        });
+        await handleJsonResponse(response);
+        await refreshDatasets(false);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    });
+    document.getElementById("resetDatasetsBtn").addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/reset-local-datasets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ datasets: getSelectedDatasets() }),
+        });
+        await handleJsonResponse(response);
+        await refreshDatasets(false);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    });
+    document.getElementById("deleteDatasetsBtn").addEventListener("click", async () => {
+      const shouldDelete = window.confirm("This will delete all local data sets including all modified data. Are you sure?");
+      if (!shouldDelete) {
+        setStatus(false, "Delete canceled by user.");
+        return;
+      }
+
+      try {
+        const response = await fetch("/api/delete-local-datasets", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ datasets: getSelectedDatasets() }),
+        });
+        await handleJsonResponse(response);
+        await refreshDatasets(false);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    });
+    document.getElementById("sourceCodeBtn").addEventListener("click", async () => {
+      try {
+        const response = await fetch("/api/run-source-operation", { method: "POST" });
+        await handleJsonResponse(response);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    });
+
+    function syncModeUI() {
+      const isManual = modeEl.value === "manual";
+      manualRowEl.classList.toggle("hidden", !isManual);
+      builderFieldsEl.classList.toggle("hidden", isManual);
+      collectionEl.required = !isManual;
+    }
+
+    modeEl.addEventListener("change", syncModeUI);
+    syncModeUI();
+    refreshDatasets(false);
+
+    queryForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const formData = new FormData(queryForm);
+      const payload = cleanPayload(formData);
+
+      try {
+        const response = await fetch("/api/query", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        await handleJsonResponse(response);
+      } catch (error) {
+        const payload = { ok: false, message: error.message };
+        setResult(payload);
+        setStatus(false, error.message);
+      }
+    });
+  </script>
+</body>
+</html>
