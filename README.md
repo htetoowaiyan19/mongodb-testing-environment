@@ -107,8 +107,6 @@ npm run generate-sample-data
 
 ## Built-in local dataset mode (for classroom use)
 
-This directly addresses the "no internet / no manual data creation first" workflow.
-
 1. Click `Show Local Datasets` in UI to inspect available local JSON files.
 2. Select one or multiple datasets from the dataset selector.
 3. Click `Load Local Datasets` in UI (append mode).
@@ -119,7 +117,7 @@ This directly addresses the "no internet / no manual data creation first" workfl
    - `demo_products`
    - `demo_orders`
 
-You now have 450 records ready for practicing:
+This creates 450 records ready for practicing:
 
 - filters (`$gt`, `$in`, `$and`, `$or`)
 - projection
@@ -354,3 +352,4 @@ Create note:
 - MongoDB server must be running.
 - This playground is intentionally schema-less and flexible for learning.
 - There is minimal validation by design; invalid query shapes may throw Mongo/Mongoose errors directly.
+
