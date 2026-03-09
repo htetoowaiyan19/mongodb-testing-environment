@@ -9,6 +9,11 @@ This project is a basic classroom-friendly MongoDB playground built with:
 The goal is to let students test MongoDB queries from one UI and also from actual source code.
 It also includes local JSON dataset support so users can start querying immediately without creating DB data first.
 
+## What is MongoDB?
+Learn MongoDB directly at our page:
+- [In Burmese](./lessons/LESSONS_MY.md)
+- [In English]()
+
 ## Core idea
 
 You can execute queries in 4 different styles:
@@ -31,6 +36,7 @@ Source-code mode gives the "coding directly in project files" experience while s
   - `updateOne`, `updateMany`
   - `deleteOne`, `deleteMany`
   - `aggregate`
+  - `operation` (step-by-step read/modify/write with field-level actions)
 - Schema-less dynamic models so any collection/document shape can be tested
 
 ## Project structure
@@ -340,16 +346,54 @@ Use these keys depending on operation:
 - `document`
 - `documents`
 - `pipeline`
+- `steps`
 - `options`
 - `limit`
 
 Create note:
 - You can use either `createOne`/`createMany` or `insertOne`/`insertMany`.
 - They execute the same create logic in this playground.
+- `operation` runs ordered `steps` on matched document(s) and writes the full modified doc back.
+
+Operation step actions:
+- `set` (`path`, `value`)
+- `copy` (`from`, `to`)
+- `rename` (`from`, `to`)
+- `delete` / `unset` (`path`)
+- `inc` (`path`, `value` or `by`)
+- `push` (`path`, `value`)
+- `pull` (`path`, `value`)
+
+Field-reference template:
+- Use `{"$field":"some.path"}` inside `value` to copy from current document values.
+
+Example (same idea as Mongo shell `joe` transformation):
+
+```json
+{
+  "collection": "users",
+  "operation": "operation",
+  "filter": { "name": "joe" },
+  "steps": [
+    {
+      "action": "set",
+      "path": "relationships",
+      "value": {
+        "friends": { "$field": "friends" },
+        "enemies": { "$field": "enemies" }
+      }
+    },
+    { "action": "copy", "from": "name", "to": "username" },
+    { "action": "delete", "path": "friends" },
+    { "action": "delete", "path": "enemies" },
+    { "action": "delete", "path": "name" }
+  ]
+}
+```
+
 
 ## Important notes
 
 - MongoDB server must be running.
 - This playground is intentionally schema-less and flexible for learning.
 - There is minimal validation by design; invalid query shapes may throw Mongo/Mongoose errors directly.
-

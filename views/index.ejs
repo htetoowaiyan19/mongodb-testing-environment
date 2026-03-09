@@ -48,7 +48,7 @@
           id="manualQuery"
           name="manualQuery"
           rows="8"
-          placeholder='{"collection":"users","operation":"find","filter":{"active":true},"limit":10}'
+          placeholder='{"collection":"users","operation":"operation","filter":{"name":"joe"},"steps":[{"action":"set","path":"relationships","value":{"friends":{"$field":"friends"},"enemies":{"$field":"enemies"}}},{"action":"copy","from":"name","to":"username"},{"action":"delete","path":"friends"},{"action":"delete","path":"enemies"},{"action":"delete","path":"name"}]}'
         ></textarea>
       </div>
 
@@ -72,6 +72,7 @@
           <option value="deleteOne">deleteOne</option>
           <option value="deleteMany">deleteMany</option>
           <option value="aggregate">aggregate</option>
+          <option value="operation">operation</option>
         </select>
       </div>
 
@@ -98,6 +99,11 @@
       <div class="row">
         <label for="pipeline">Pipeline JSON Array (aggregate)</label>
         <textarea id="pipeline" name="pipeline" rows="3" placeholder='[{"$match":{"active":true}}]'></textarea>
+      </div>
+
+      <div class="row">
+        <label for="steps">Operation Steps JSON Array (operation)</label>
+        <textarea id="steps" name="steps" rows="4" placeholder='[{"action":"set","path":"username","value":{"$field":"name"}},{"action":"delete","path":"name"}]'></textarea>
       </div>
 
       <div class="row">
@@ -298,8 +304,18 @@
 
     queryForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const formData = new FormData(queryForm);
-      const payload = cleanPayload(formData);
+      const mode = modeEl.value;
+      let payload;
+
+      if (mode === "manual") {
+        payload = {
+          mode: "manual",
+          manualQuery: document.getElementById("manualQuery").value,
+        };
+      } else {
+        const formData = new FormData(queryForm);
+        payload = cleanPayload(formData);
+      }
 
       try {
         const response = await fetch("/api/query", {

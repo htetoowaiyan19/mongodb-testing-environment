@@ -27,7 +27,7 @@ const app = express();
   - MONGODB_DB is the logical database name inside the Mongo server.
 */
 const PORT = process.env.PORT || 3000;
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://<db-name>:<db-password>@clustername.u5wwvtg.mongodb.net/dbname?retryWrites=true&w=majority";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://jerrydb:1972005@clustername.u5wwvtg.mongodb.net/dbname?retryWrites=true&w=majority";
 const MONGODB_DB = process.env.MONGODB_DB || "mongo_playground";
 const LOCAL_DATA_DIR = path.join(__dirname, "local-data");
 
@@ -78,6 +78,251 @@ function parseJson(value, fallback) {
   }
 
   return JSON.parse(value);
+}
+
+function ensureObject(value, errorMessage) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(errorMessage);
+  }
+  return value;
+}
+
+function pathToSegments(pathValue) {
+  if (typeof pathValue !== "string" || !pathValue.trim()) {
+    throw new Error("Path must be a non-empty string.");
+  }
+
+  const segments = pathValue
+    .split(".")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (segments.length === 0) {
+    throw new Error("Path must include at least one segment.");
+  }
+
+  for (const segment of segments) {
+    if (segment === "__proto__" || segment === "constructor" || segment === "prototype") {
+      throw new Error(`Disallowed path segment: ${segment}`);
+    }
+  }
+
+  return segments;
+}
+
+function getValueAtPath(target, pathValue) {
+  const segments = pathToSegments(pathValue);
+  let current = target;
+  for (const segment of segments) {
+    if (current === null || typeof current !== "object") return undefined;
+    current = current[segment];
+  }
+  return current;
+}
+
+function setValueAtPath(target, pathValue, nextValue) {
+  const segments = pathToSegments(pathValue);
+  let current = target;
+
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    if (
+      current[segment] === undefined ||
+      current[segment] === null ||
+      typeof current[segment] !== "object" ||
+      Array.isArray(current[segment])
+    ) {
+      current[segment] = {};
+    }
+    current = current[segment];
+  }
+
+  current[segments[segments.length - 1]] = nextValue;
+}
+
+function deleteValueAtPath(target, pathValue) {
+  const segments = pathToSegments(pathValue);
+  let current = target;
+
+  for (let index = 0; index < segments.length - 1; index += 1) {
+    const segment = segments[index];
+    if (current[segment] === undefined || current[segment] === null || typeof current[segment] !== "object") {
+      return false;
+    }
+    current = current[segment];
+  }
+
+  const leaf = segments[segments.length - 1];
+  if (Object.prototype.hasOwnProperty.call(current, leaf)) {
+    delete current[leaf];
+    return true;
+  }
+
+  return false;
+}
+
+function resolveTemplateValue(template, currentDoc) {
+  if (Array.isArray(template)) {
+    return template.map((item) => resolveTemplateValue(item, currentDoc));
+  }
+
+  if (template && typeof template === "object") {
+    if (Object.keys(template).length === 1 && Object.prototype.hasOwnProperty.call(template, "$field")) {
+      return getValueAtPath(currentDoc, template.$field);
+    }
+
+    const result = {};
+    for (const [key, value] of Object.entries(template)) {
+      result[key] = resolveTemplateValue(value, currentDoc);
+    }
+    return result;
+  }
+
+  return template;
+}
+
+function applyOperationStep(currentDoc, rawStep) {
+  const step = ensureObject(rawStep, "Each operation step must be an object.");
+  const action = String(step.action || "").trim();
+  if (!action) {
+    throw new Error("Each operation step requires action.");
+  }
+
+  switch (action) {
+    case "set": {
+      const pathValue = step.path || step.to;
+      if (!pathValue) throw new Error("set action requires path.");
+      const nextValue = resolveTemplateValue(step.value, currentDoc);
+      setValueAtPath(currentDoc, pathValue, nextValue);
+      return { action, path: pathValue };
+    }
+    case "copy": {
+      const from = step.from;
+      const to = step.to;
+      if (!from || !to) throw new Error("copy action requires from and to.");
+      setValueAtPath(currentDoc, to, getValueAtPath(currentDoc, from));
+      return { action, from, to };
+    }
+    case "rename": {
+      const from = step.from;
+      const to = step.to;
+      if (!from || !to) throw new Error("rename action requires from and to.");
+      const value = getValueAtPath(currentDoc, from);
+      setValueAtPath(currentDoc, to, value);
+      deleteValueAtPath(currentDoc, from);
+      return { action, from, to };
+    }
+    case "delete":
+    case "unset": {
+      const pathValue = step.path || step.from;
+      if (!pathValue) throw new Error(`${action} action requires path.`);
+      return { action, path: pathValue, deleted: deleteValueAtPath(currentDoc, pathValue) };
+    }
+    case "inc": {
+      const pathValue = step.path;
+      if (!pathValue) throw new Error("inc action requires path.");
+      const amount = Number(step.value ?? step.by ?? 1);
+      if (!Number.isFinite(amount)) throw new Error("inc action requires a numeric value.");
+      const currentValue = getValueAtPath(currentDoc, pathValue);
+      const base = typeof currentValue === "number" ? currentValue : 0;
+      setValueAtPath(currentDoc, pathValue, base + amount);
+      return { action, path: pathValue, by: amount };
+    }
+    case "push": {
+      const pathValue = step.path;
+      if (!pathValue) throw new Error("push action requires path.");
+      const nextValue = resolveTemplateValue(step.value, currentDoc);
+      const currentValue = getValueAtPath(currentDoc, pathValue);
+      const asArray = Array.isArray(currentValue) ? currentValue.slice() : [];
+      asArray.push(nextValue);
+      setValueAtPath(currentDoc, pathValue, asArray);
+      return { action, path: pathValue };
+    }
+    case "pull": {
+      const pathValue = step.path;
+      if (!pathValue) throw new Error("pull action requires path.");
+      const nextValue = resolveTemplateValue(step.value, currentDoc);
+      const currentValue = getValueAtPath(currentDoc, pathValue);
+      if (!Array.isArray(currentValue)) {
+        setValueAtPath(currentDoc, pathValue, []);
+      } else {
+        setValueAtPath(
+          currentDoc,
+          pathValue,
+          currentValue.filter((item) => JSON.stringify(item) !== JSON.stringify(nextValue))
+        );
+      }
+      return { action, path: pathValue };
+    }
+    default:
+      throw new Error(`Unsupported operation step action: ${action}`);
+  }
+}
+
+async function runDocumentOperation(model, payload) {
+  const filter = parseJson(payload.filter, {});
+  const projection = parseJson(payload.projection, undefined);
+  const sort = parseJson(payload.sort, undefined);
+  const options = parseJson(payload.options, {});
+  const steps = parseJson(payload.steps, []);
+  const maxDocs = Number(payload.maxDocs ?? options.maxDocs ?? 1);
+  const shouldApplyToMany = Boolean(payload.multi ?? options.multi);
+
+  if (!Array.isArray(steps) || steps.length === 0) {
+    throw new Error("operation requires a non-empty steps array.");
+  }
+
+  if (!Number.isFinite(maxDocs) || maxDocs <= 0) {
+    throw new Error("operation maxDocs must be a positive number.");
+  }
+  if (projection !== undefined && projection !== null) {
+    throw new Error("operation does not support projection. Read-modify-write needs full documents.");
+  }
+
+  const queryLimit = shouldApplyToMany ? Math.floor(maxDocs) : 1;
+  let query = model.find(filter, undefined, options);
+  if (sort) query = query.sort(sort);
+  query = query.limit(queryLimit);
+  const docs = await query.lean().exec();
+
+  if (!docs.length) {
+    return {
+      matchedCount: 0,
+      modifiedCount: 0,
+      documents: [],
+      message: "No documents matched filter for operation.",
+    };
+  }
+
+  const resultDocuments = [];
+  let modifiedCount = 0;
+
+  for (const originalDoc of docs) {
+    const currentDoc = JSON.parse(JSON.stringify(originalDoc));
+    const stepResults = [];
+
+    for (const step of steps) {
+      stepResults.push(applyOperationStep(currentDoc, step));
+    }
+
+    await model.collection.replaceOne({ _id: originalDoc._id }, currentDoc, {
+      upsert: false,
+    });
+
+    modifiedCount += 1;
+    resultDocuments.push({
+      _id: originalDoc._id,
+      steps: stepResults,
+      before: originalDoc,
+      after: currentDoc,
+    });
+  }
+
+  return {
+    matchedCount: docs.length,
+    modifiedCount,
+    documents: resultDocuments,
+  };
 }
 
 /*
@@ -226,7 +471,6 @@ async function runOperation(payload) {
   if (!collectionName) {
     throw new Error("Collection is required.");
   }
-
   const operation = payload.operation;
   const model = getDynamicModel(collectionName);
 
@@ -238,6 +482,7 @@ async function runOperation(payload) {
   const document = parseJson(payload.document, undefined);
   const documents = parseJson(payload.documents, undefined);
   const pipeline = parseJson(payload.pipeline, []);
+  const steps = parseJson(payload.steps, []);
   const options = parseJson(payload.options, {});
   const limit = Number(payload.limit || 10);
 
@@ -273,6 +518,8 @@ async function runOperation(payload) {
       if (options && typeof options === "object") aggregateQuery.option(options);
       return aggregateQuery.exec();
     }
+    case "operation":
+      return runDocumentOperation(model, { ...payload, steps, options, filter, projection, sort });
     default:
       throw new Error(`Unsupported operation: ${operation}`);
   }
